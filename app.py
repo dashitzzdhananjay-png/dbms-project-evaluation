@@ -2,13 +2,11 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-# 1. Database Connection & Auto-Setup (SQLite)
 def init_db():
-    conn = sqlite3.connect("project_eval_v2.db")
+    conn = sqlite3.connect("project_eval_v3.db")
     c = conn.cursor()
     c.execute("PRAGMA foreign_keys = ON;")
 
-    # Normalized Tables Create Karna
     c.executescript("""
     CREATE TABLE IF NOT EXISTS Faculty (
         faculty_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,7 +70,6 @@ def init_db():
         FOREIGN KEY (evaluator_id) REFERENCES Faculty(faculty_id)
     );
 
-    -- DBMS FEATURE 1: SQL TRIGGER (Late Submission Check)
     CREATE TRIGGER IF NOT EXISTS check_late_submission
     AFTER INSERT ON Submissions
     FOR EACH ROW
@@ -85,7 +82,6 @@ def init_db():
         WHERE submission_id = NEW.submission_id;
     END;
 
-    -- DBMS FEATURE 2: SQL VIEW (Final Grade Sheet with Student Details)
     CREATE VIEW IF NOT EXISTS Final_Grade_View AS
     SELECT 
         st.roll_no AS 'Roll No',
@@ -107,12 +103,11 @@ def init_db():
     LEFT JOIN Evaluations e ON s.submission_id = e.submission_id;
     """)
 
-    # Starter Faculty & Milestones Data (Sirf Pehli Baar)
     c.execute("SELECT COUNT(*) FROM Faculty")
     if c.fetchone()[0] == 0:
         c.execute("""
             INSERT INTO Faculty (name, email, department) VALUES 
-            ('Dr. A. Sharma', 'sharma@nist.edu', 'CSE'), 
+            ('Subhasri Pradhan', 'subhasri.pradhan@nist.edu', 'CSE'), 
             ('Prof. R. Das', 'das@nist.edu', 'CSE'),
             ('Dr. S. Mohanty', 'mohanty@nist.edu', 'ECE')
         """)
@@ -129,7 +124,6 @@ def init_db():
 conn = init_db()
 cursor = conn.cursor()
 
-# 2. Streamlit Frontend UI
 st.set_page_config(page_title="DBMS Project Evaluation System", layout="wide")
 st.title("🎓 Project Submission & Evaluation System")
 
@@ -140,7 +134,6 @@ role = st.sidebar.radio("Navigation Menu", [
     "🗄️ View Raw Database Tables"
 ])
 
-# ================= STUDENT PORTAL =================
 if role == "👨‍💻 Student Portal":
     st.header("Student Registration & Submission Dashboard")
     col1, col2 = st.columns(2)
@@ -148,7 +141,6 @@ if role == "👨‍💻 Student Portal":
     with col1:
         st.subheader("1. Student & Project Registration")
         
-        # Student Personal Details
         student_name = st.text_input("Full Name (e.g., Dhananjay Dash)")
         roll_no = st.text_input("Roll Number (e.g., 202520660)")
         
@@ -159,7 +151,6 @@ if role == "👨‍💻 Student Portal":
             sem = st.selectbox("Semester", ["3rd Sem", "4th Sem", "5th Sem", "6th Sem", "7th Sem", "8th Sem"])
 
         st.markdown("---")
-        # Group & Project Details
         group_name = st.text_input("Create / Enter Group Name (e.g., Team Alpha)")
         
         faculties = cursor.execute("SELECT faculty_id, name, department FROM Faculty").fetchall()
@@ -172,7 +163,6 @@ if role == "👨‍💻 Student Portal":
         if st.button("Register Student & Project", type="primary"):
             if student_name and roll_no and group_name and title:
                 try:
-                    # Check if group already exists, else create it
                     cursor.execute("SELECT group_id FROM Project_Groups WHERE group_name = ?", (group_name,))
                     row = cursor.fetchone()
                     if row:
@@ -181,23 +171,21 @@ if role == "👨‍💻 Student Portal":
                         cursor.execute("INSERT INTO Project_Groups (group_name, guide_id) VALUES (?, ?)", (group_name, fac_dict[sel_guide]))
                         gid = cursor.lastrowid
 
-                    # Insert Student Details
                     cursor.execute("""
                         INSERT INTO Students (roll_no, name, department, semester, group_id) 
                         VALUES (?, ?, ?, ?, ?)
                     """, (roll_no, student_name, dept, sem, gid))
 
-                    # Insert Project Proposal (if not already submitted by this group)
                     cursor.execute("SELECT project_id FROM Projects WHERE group_id = ?", (gid,))
                     if not cursor.fetchone():
                         cursor.execute("INSERT INTO Projects (group_id, title, domain) VALUES (?, ?, ?)", (gid, title, domain))
 
                     conn.commit()
-                    st.success(f"Registered! {student_name} ({roll_no}) aur Project '{title}' save ho gaya. Ab Faculty Portal se Approve karein!")
-                except sqlite3.IntegrityError as e:
-                    st.error(f"Error: Yeh Roll Number ({roll_no}) pehle se registered hai!")
+                    st.success(f"Registered! {student_name} ({roll_no}) and Project '{title}' have been saved. Please approve it from the Faculty Portal.")
+                except sqlite3.IntegrityError:
+                    st.error(f"Error: Roll Number ({roll_no}) is already registered!")
             else:
-                st.warning("Please fill all details (Name, Roll No, Group Name, and Project Title) before registering!")
+                st.warning("Please fill in all details (Name, Roll No, Group Name, and Project Title) before registering.")
 
     with col2:
         st.subheader("2. Upload Milestone Link")
@@ -210,7 +198,7 @@ if role == "👨‍💻 Student Portal":
         milestones = cursor.execute("SELECT milestone_id, title, deadline FROM Milestones").fetchall()
 
         if not approved_projs:
-            st.info("Koi Approved Project nahi mila. Pehle Left side mein Register karein aur Faculty Portal se Approve karein.")
+            st.info("No approved projects found. Please register on the left and approve the proposal from the Faculty Portal.")
         else:
             p_map = {f"{p[1]} ({p[2]})": p[0] for p in approved_projs}
             m_map = {f"{m[1]} (Deadline: {m[2]})": m[0] for m in milestones}
@@ -223,9 +211,9 @@ if role == "👨‍💻 Student Portal":
                 if link:
                     cursor.execute("INSERT INTO Submissions (project_id, milestone_id, github_or_doc_link) VALUES (?, ?, ?)", (p_map[sel_p], m_map[sel_m], link))
                     conn.commit()
-                    st.success("Submitted! (SQL Trigger ne check kar liya ki submission On-Time hai ya Late).")
+                    st.success("Submitted! The SQL Trigger has automatically checked whether the submission is On-Time or Late.")
                 else:
-                    st.warning("Link daalna zaroori hai.")
+                    st.warning("Please enter a valid link before submitting.")
 
         st.markdown("---")
         st.subheader("👥 Registered Students List")
@@ -238,9 +226,8 @@ if role == "👨‍💻 Student Portal":
         if not df_stu.empty:
             st.dataframe(df_stu, use_container_width=True)
         else:
-            st.caption("Abhi tak koi student register nahi hua hai.")
+            st.caption("No students have registered yet.")
 
-# ================= FACULTY PORTAL =================
 elif role == "👩‍🏫 Faculty Portal":
     st.header("Faculty Evaluation Dashboard")
     tab1, tab2 = st.tabs(["✅ Approve Project Proposals", "📝 Grade Submissions"])
@@ -265,7 +252,7 @@ elif role == "👩‍🏫 Faculty Portal":
                 st.success(f"Project ID {pid} status updated to {new_st}!")
                 st.rerun()
         else:
-            st.info("Abhi tak kisi student ne proposal register nahi kiya hai.")
+            st.info("No project proposals have been registered yet.")
 
     with tab2:
         df_s = pd.read_sql_query("""
@@ -288,23 +275,22 @@ elif role == "👩‍🏫 Faculty Portal":
             if st.button("Save Marks"):
                 cursor.execute("INSERT INTO Evaluations (submission_id, evaluator_id, marks_obtained, remarks) VALUES (?, 1, ?, ?)", (sid, marks, rem))
                 conn.commit()
-                st.success("Marks database mein save ho gaye!")
+                st.success("Marks have been saved to the database!")
                 st.rerun()
         else:
-            st.info("Koi pending submission nahi hai evaluate karne ke liye.")
+            st.info("No pending submissions available for evaluation.")
 
-# ================= GRADE SHEET VIEW =================
 elif role == "📊 Final Grade Sheet (SQL View)":
     st.header("Consolidated Student Result (Generated via SQL VIEW)")
     df_view = pd.read_sql_query("SELECT * FROM Final_Grade_View", conn)
     if not df_view.empty:
         st.dataframe(df_view, use_container_width=True)
     else:
-        st.info("Jab submissions ho jayengi, tab yahan har student ke Roll No ke saath result dikhega.")
+        st.info("Once submissions are made, each student's result will appear here with their Roll Number.")
 
-# ================= RAW TABLES (FOR VIVA DEMO) =================
 elif role == "🗄️ View Raw Database Tables":
     st.header("Database Tables Inspector (For Viva Demonstration)")
     table_name = st.selectbox("Select Table to View Records", ["Students", "Project_Groups", "Projects", "Faculty", "Milestones", "Submissions", "Evaluations"])
     df_raw = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
     st.dataframe(df_raw, use_container_width=True)
+    
